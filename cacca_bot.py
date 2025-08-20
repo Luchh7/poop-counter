@@ -1,24 +1,25 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
+from discord import app_commands
 import json
 import os
-from datetime import datetime
+from datetime import datetime, date
+import shutil
 
 # ----------------------
-# Impostazioni intents
+# Intents
 # ----------------------
 intents = discord.Intents.default()
-intents.message_content = True  # necessario per leggere i messaggi
-intents.members = True          # necessario se leggi membri
+intents.message_content = True
+intents.members = True
 
-bot = commands.Bot(command_prefix="*", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ----------------------
-# Percorso file dati
+# File dati
 # ----------------------
 DATA_FILE = "cacca_data.json"
 
-# Carica dati esistenti o crea struttura vuota
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
@@ -35,20 +36,44 @@ def save_data():
 def today_str():
     return datetime.utcnow().strftime("%Y-%m-%d")
 
+def backup_data():
+    if os.path.exists(DATA_FILE):
+        today = date.today().strftime("%Y-%m-%d")
+        backup_file = f"backup_cacca_{today}.json"
+        shutil.copyfile(DATA_FILE, backup_file)
+        print(f"💾 Backup creato: {backup_file}")
+
+# ----------------------
+# Backup giornaliero automatico
+# ----------------------
+@tasks.loop(hours=24)
+async def daily_backup():
+    backup_data()
+
+@daily_backup.before_loop
+async def before_backup():
+    await bot.wait_until_ready()
+
 # ----------------------
 # Eventi
 # ----------------------
 @bot.event
 async def on_ready():
     print(f"✅ Bot connesso come {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Comandi slash sincronizzati: {len(synced)}")
+    except Exception as e:
+        print(e)
+    # Avvia il backup giornaliero
+    daily_backup.start()
 
 # ----------------------
-# Comandi con prefisso *
+# Comandi Slash
 # ----------------------
-
-@bot.command(name="cacca")
-async def cacca(ctx):
-    user_id = str(ctx.author.id)
+@bot.tree.command(name="cacca", description="Aggiungi una cacca al tuo record!")
+async def cacca(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
     today = today_str()
 
     if user_id not in data:
@@ -59,17 +84,17 @@ async def cacca(ctx):
 
     data[user_id][today] += 1
     save_data()
-    await ctx.send(f"💩 {ctx.author.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
+    await interaction.response.send_message(f"💩 {interaction.user.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
 
-@bot.command(name="recordcacca")
-async def recordcacca(ctx):
-    user_id = str(ctx.author.id)
+@bot.tree.command(name="recordcacca", description="Mostra il tuo record giornaliero di cacca!")
+async def recordcacca(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
     today = today_str()
     count = data.get(user_id, {}).get(today, 0)
-    await ctx.send(f"📊 {ctx.author.mention}, oggi hai fatto la cacca {count} volte!")
+    await interaction.response.send_message(f"📊 {interaction.user.mention}, oggi hai fatto la cacca {count} volte!")
 
-@bot.command(name="cagate")
-async def cagate(ctx):
+@bot.tree.command(name="cagate", description="Mostra chi fa più cacca!")
+async def cagate(interaction: discord.Interaction):
     leaderboard = []
 
     for user_id, days in data.items():
@@ -79,14 +104,14 @@ async def cagate(ctx):
     leaderboard.sort(key=lambda x: x[1], reverse=True)
 
     if not leaderboard:
-        await ctx.send("Nessuna cacca registrata 😅")
+        await interaction.response.send_message("Nessuna cacca registrata 😅")
         return
 
     message = "🏆 **Classifica delle Cagate** 🏆\n"
     for i, (user_id, total) in enumerate(leaderboard[:10], start=1):
         message += f"{i}. <@{user_id}>: {total} 💩\n"
 
-    await ctx.send(message)
+    await interaction.response.send_message(message)
 
 # ----------------------
 # Avvio bot
