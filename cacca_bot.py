@@ -9,9 +9,9 @@ from datetime import datetime
 # ----------------------
 intents = discord.Intents.default()
 intents.message_content = True  # necessario per leggere i messaggi
-intents.members = True          # necessario per leggere i membri
+intents.members = True          # necessario se leggi membri
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="*", intents=intents)
 
 # ----------------------
 # Percorso file dati
@@ -41,18 +41,14 @@ def today_str():
 @bot.event
 async def on_ready():
     print(f"✅ Bot connesso come {bot.user}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Comandi slash sincronizzati: {len(synced)}")
-    except Exception as e:
-        print(e)
 
 # ----------------------
-# Comandi Slash
+# Comandi con prefisso *
 # ----------------------
-@bot.tree.command(name="cacca", description="Aggiungi una cacca al tuo record!")
-async def cacca(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
+
+@bot.command(name="cacca")
+async def cacca(ctx):
+    user_id = str(ctx.author.id)
     today = today_str()
 
     if user_id not in data:
@@ -63,17 +59,17 @@ async def cacca(interaction: discord.Interaction):
 
     data[user_id][today] += 1
     save_data()
-    await interaction.response.send_message(f"💩 {interaction.user.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
+    await ctx.send(f"💩 {ctx.author.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
 
-@bot.tree.command(name="recordcacca", description="Mostra il tuo record giornaliero di cacca!")
-async def recordcacca(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
+@bot.command(name="recordcacca")
+async def recordcacca(ctx):
+    user_id = str(ctx.author.id)
     today = today_str()
     count = data.get(user_id, {}).get(today, 0)
-    await interaction.response.send_message(f"📊 {interaction.user.mention}, oggi hai fatto la cacca {count} volte!")
+    await ctx.send(f"📊 {ctx.author.mention}, oggi hai fatto la cacca {count} volte!")
 
-@bot.tree.command(name="cagate", description="Mostra chi fa più cacca!")
-async def cagate(interaction: discord.Interaction):
+@bot.command(name="cagate")
+async def cagate(ctx):
     leaderboard = []
 
     for user_id, days in data.items():
@@ -83,14 +79,14 @@ async def cagate(interaction: discord.Interaction):
     leaderboard.sort(key=lambda x: x[1], reverse=True)
 
     if not leaderboard:
-        await interaction.response.send_message("Nessuna cacca registrata 😅")
+        await ctx.send("Nessuna cacca registrata 😅")
         return
 
     message = "🏆 **Classifica delle Cagate** 🏆\n"
     for i, (user_id, total) in enumerate(leaderboard[:10], start=1):
         message += f"{i}. <@{user_id}>: {total} 💩\n"
 
-    await interaction.response.send_message(message)
+    await ctx.send(message)
 
 # ----------------------
 # Avvio bot
