@@ -1,123 +1,103 @@
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
 import json
 import os
-from datetime import datetime, date
-import shutil
+from datetime import datetime
 
-# ----------------------
-# Impostazioni Intents
-# ----------------------
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# Prefisso dei comandi
+bot = commands.Bot(command_prefix="*", intents=discord.Intents.all())
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+DATA_FILE = "cagate.json"
+BACKUP_FILE = "backup.json"
 
-# ----------------------
-# Inserisci qui l'ID del tuo server
-# ----------------------
-GUILD_ID = int(os.getenv("GUILD_ID"))
+# Funzione per caricare dati
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    elif os.path.exists(BACKUP_FILE):
+        with open(BACKUP_FILE, "r") as f:
+            return json.load(f)
+    else:
+        return {"users": {}, "daily": {}}
 
-
-# ----------------------
-# File dati
-# ----------------------
-DATA_FILE = "cacca_data.json"
-
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r") as f:
-        data = json.load(f)
-else:
-    data = {}
-
-# ----------------------
-# Funzioni di supporto
-# ----------------------
+# Funzione per salvare dati
 def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-def today_str():
-    return datetime.utcnow().strftime("%Y-%m-%d")
-
+# Funzione per backup
 def backup_data():
-    if os.path.exists(DATA_FILE):
-        today = date.today().strftime("%Y-%m-%d")
-        backup_file = f"backup_cacca_{today}.json"
-        shutil.copyfile(DATA_FILE, backup_file)
-        print(f"💾 Backup creato: {backup_file}")
+    with open(BACKUP_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
-# ----------------------
-# Backup giornaliero automatico
-# ----------------------
-@tasks.loop(hours=24)
-async def daily_backup():
-    backup_data()
+# Carica dati
+data = load_data()
 
-@daily_backup.before_loop
-async def before_backup():
-    await bot.wait_until_ready()
-
-# ----------------------
-# Eventi
-# ----------------------
 @bot.event
 async def on_ready():
     print(f"✅ Bot connesso come {bot.user}")
-    guild = discord.Object(id=GUILD_ID)
-    await bot.tree.sync(guild=guild)
-    print("Comandi sincronizzati sul server specifico")
-    # Avvia backup giornaliero
-    daily_backup.start()
+    auto_backup.start()
 
-# ----------------------
-# Comandi Slash
-# ----------------------
-@bot.tree.command(name="cacca", description="Aggiungi una cacca al tuo record!")
-async def cacca(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    today = today_str()
+# Comando per aggiungere cacca
+@bot.command()
+async def cacca(ctx):
+    user_id = str(ctx.author.id)
+    today = datetime.now().strftime("%Y-%m-%d")
 
-    if user_id not in data:
-        data[user_id] = {}
+    if user_id not in data["users"]:
+        data["users"][user_id] = 0
+    if today not in data["daily"]:
+        data["daily"][today] = {}
 
-    if today not in data[user_id]:
-        data[user_id][today] = 0
+    if user_id not in data["daily"][today]:
+        data["daily"][today][user_id] = 0
 
-    data[user_id][today] += 1
+    data["users"][user_id] += 1
+    data["daily"][today][user_id] += 1
     save_data()
-    await interaction.response.send_message(f"💩 {interaction.user.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
 
-@bot.tree.command(name="recordcacca", description="Mostra il tuo record giornaliero di cacca!")
-async def recordcacca(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    today = today_str()
-    count = data.get(user_id, {}).get(today, 0)
-    await interaction.response.send_message(f"📊 {interaction.user.mention}, oggi hai fatto la cacca {count} volte!")
+    await ctx.send(f"💩 {ctx.author.mention} ha fatto una cacca! Totale: {data['users'][user_id]}")
 
-@bot.tree.command(name="cagate", description="Mostra chi fa più cacca!")
-async def cagate(interaction: discord.Interaction):
-    leaderboard = []
-
-    for user_id, days in data.items():
-        total = sum(days.values())
-        leaderboard.append((user_id, total))
-
-    leaderboard.sort(key=lambda x: x[1], reverse=True)
-
-    if not leaderboard:
-        await interaction.response.send_message("Nessuna cacca registrata 😅")
+# Comando classifica
+@bot.command()
+async def cagate(ctx):
+    if not data["users"]:
+        await ctx.send("Nessuno ha ancora cagato 💨")
         return
 
-    message = "🏆 **Classifica delle Cagate** 🏆\n"
-    for i, (user_id, total) in enumerate(leaderboard[:10], start=1):
-        message += f"{i}. <@{user_id}>: {total} 💩\n"
+    classifica = sorted(data["users"].items(), key=lambda x: x[1], reverse=True)
+    testo = "🏆 Classifica cacate 🏆\n"
+    for i, (user_id, count) in enumerate(classifica, start=1):
+        user = await bot.fetch_user(int(user_id))
+        testo += f"{i}. {user.mention} → {count} cacate\n"
 
-    await interaction.response.send_message(message)
+    await ctx.send(testo)
 
-# ----------------------
-# Avvio bot
-# ----------------------
-bot.run(os.getenv("DISCORD_TOKEN"))
+# Comando record giornaliero
+@bot.command()
+async def recordcagate(ctx):
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today not in data["daily"] or not data["daily"][today]:
+        await ctx.send("Oggi nessuno ha cagato 💨")
+        return
+
+    top_user_id, top_count = max(data["daily"][today].items(), key=lambda x: x[1])
+    user = await bot.fetch_user(int(top_user_id))
+    await ctx.send(f"📅 Oggi il campione di cacate è {user.mention} con {top_count} 💩!")
+
+# Comando manuale backup
+@bot.command()
+async def backup(ctx):
+    backup_data()
+    await ctx.send("💾 Backup manuale completato!")
+
+# Backup automatico ogni 2 ore
+@tasks.loop(hours=2)
+async def auto_backup():
+    backup_data()
+    print("💾 Backup automatico eseguito")
+
+# Avvia il bot
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
