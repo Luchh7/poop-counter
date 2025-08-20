@@ -1,121 +1,104 @@
 import discord
 from discord.ext import commands
-from collections import defaultdict
-import datetime
+from discord import app_commands
 import json
 import os
-import shutil
+from datetime import datetime
 
-# Intents necessari
+# ----------------------
+# Impostazioni intents
+# ----------------------
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # necessario per leggere i messaggi
+intents.members = True          # necessario per leggere i membri
 
-bot = commands.Bot(command_prefix="/", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ----------------------
+# Percorso file dati
+# ----------------------
 DATA_FILE = "cacca_data.json"
-BACKUP_FOLDER = "backups"
 
-# Variabili
-cacca_oggi = defaultdict(int)
-record_personale = defaultdict(int)
-ultima_data = datetime.date.today()
+# Carica dati esistenti o crea struttura vuota
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r") as f:
+        data = json.load(f)
+else:
+    data = {}
 
-
-# ---------- Gestione file ----------
-def salva_dati():
-    data = {
-        "cacca_oggi": dict(cacca_oggi),
-        "record_personale": dict(record_personale),
-        "ultima_data": ultima_data.isoformat()
-    }
+# ----------------------
+# Funzioni di supporto
+# ----------------------
+def save_data():
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=4)
 
+def today_str():
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
-def carica_dati():
-    global cacca_oggi, record_personale, ultima_data
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-
-        cacca_oggi = defaultdict(int, {int(k): v for k, v in data.get("cacca_oggi", {}).items()})
-        record_personale = defaultdict(int, {int(k): v for k, v in data.get("record_personale", {}).items()})
-        ultima_data = datetime.date.fromisoformat(data.get("ultima_data", str(datetime.date.today())))
-
-
-def backup_locale():
-    oggi = datetime.date.today().isoformat()
-    if not os.path.exists(BACKUP_FOLDER):
-        os.makedirs(BACKUP_FOLDER)
-    shutil.copy(DATA_FILE, os.path.join(BACKUP_FOLDER, f"cacca_backup_{oggi}.json"))
-
-
-def reset_giornaliero():
-    global cacca_oggi, ultima_data
-    oggi = datetime.date.today()
-    if oggi != ultima_data:
-        cacca_oggi = defaultdict(int)
-        ultima_data = oggi
-        salva_dati()
-        backup_locale()
-
-
-# ---------- Eventi e comandi ----------
+# ----------------------
+# Eventi
+# ----------------------
 @bot.event
 async def on_ready():
-    carica_dati()
     print(f"✅ Bot connesso come {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Comandi sincronizzati: {len(synced)}")
+    except Exception as e:
+        print(e)
 
+# ----------------------
+# Comandi Slash
+# ----------------------
 
-@bot.command()
-async def cacca(ctx):
-    """Segna che l'utente è andato in bagno"""
-    reset_giornaliero()
+# 1️⃣ Comando per aggiungere una cacca
+@bot.tree.command(name="cacca", description="Aggiungi una cacca al tuo record!")
+async def cacca(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    today = today_str()
 
-    user = ctx.author
-    cacca_oggi[user.id] += 1
+    if user_id not in data:
+        data[user_id] = {}
 
-    # aggiorna record personale
-    if cacca_oggi[user.id] > record_personale[user.id]:
-        record_personale[user.id] = cacca_oggi[user.id]
+    if today not in data[user_id]:
+        data[user_id][today] = 0
 
-    salva_dati()
-    await ctx.send(f"💩 {user.display_name} ha fatto cacca! Totale di oggi: {cacca_oggi[user.id]}")
+    data[user_id][today] += 1
+    save_data()
+    await interaction.response.send_message(f"💩 {interaction.user.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
 
+# 2️⃣ Comando per vedere il record giornaliero di un utente
+@bot.tree.command(name="recordcacca", description="Mostra il tuo record giornaliero di cacca!")
+async def recordcacca(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    today = today_str()
+    count = data.get(user_id, {}).get(today, 0)
+    await interaction.response.send_message(f"📊 {interaction.user.mention}, oggi hai fatto la cacca {count} volte!")
 
-@bot.command()
-async def classifica(ctx):
-    """Mostra la classifica delle cacche di oggi"""
-    reset_giornaliero()
+# 3️⃣ Comando per vedere la classifica generale (ora chiamata "cagate")
+@bot.tree.command(name="cagate", description="Mostra chi fa più cacca!")
+async def cagate(interaction: discord.Interaction):
+    leaderboard = []
 
-    if not cacca_oggi:
-        await ctx.send("Nessuno ha ancora fatto cacca oggi 💩")
+    for user_id, days in data.items():
+        total = sum(days.values())
+        leaderboard.append((user_id, total))
+
+    leaderboard.sort(key=lambda x: x[1], reverse=True)
+
+    if not leaderboard:
+        await interaction.response.send_message("Nessuna cacca registrata 😅")
         return
 
-    classifica = sorted(cacca_oggi.items(), key=lambda x: x[1], reverse=True)
-    msg = "📊 Classifica cacche di oggi:\n"
-    for i, (user_id, count) in enumerate(classifica, start=1):
-        user = await bot.fetch_user(user_id)
-        msg += f"{i}. {user.display_name} → {count}\n"
+    message = "🏆 **Classifica delle Cagate** 🏆\n"
+    for i, (user_id, total) in enumerate(leaderboard[:10], start=1):
+        # Tagga direttamente l'utente
+        message += f"{i}. <@{user_id}>: {total} 💩\n"
 
-    await ctx.send(msg)
+    await interaction.response.send_message(message)
 
-
-@bot.command()
-async def record(ctx):
-    """Mostra i record personali"""
-    if not record_personale:
-        await ctx.send("Nessun record ancora registrato 💩")
-        return
-
-    classifica = sorted(record_personale.items(), key=lambda x: x[1], reverse=True)
-    msg = "🏆 Record personali:\n"
-    for i, (user_id, record) in enumerate(classifica, start=1):
-        user = await bot.fetch_user(user_id)
-        msg += f"{i}. {user.display_name} → {record}\n"
-
-    await ctx.send(msg)
-
-
-# ---------- Avvio bot ----------
+# ----------------------
+# Avvio bot
+# ----------------------
 bot.run(os.getenv("DISCORD_TOKEN"))
