@@ -7,13 +7,19 @@ from datetime import datetime, date
 import shutil
 
 # ----------------------
-# Intents
+# Impostazioni Intents
 # ----------------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# ----------------------
+# Inserisci qui l'ID del tuo server
+# ----------------------
+GUILD_ID = int(os.getenv("GUILD_ID"))
+
 
 # ----------------------
 # File dati
@@ -60,12 +66,10 @@ async def before_backup():
 @bot.event
 async def on_ready():
     print(f"✅ Bot connesso come {bot.user}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Comandi slash sincronizzati: {len(synced)}")
-    except Exception as e:
-        print(e)
-    # Avvia il backup giornaliero
+    guild = discord.Object(id=GUILD_ID)
+    await bot.tree.sync(guild=guild)
+    print("Comandi sincronizzati sul server specifico")
+    # Avvia backup giornaliero
     daily_backup.start()
 
 # ----------------------
