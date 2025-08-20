@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
 import json
 import os
 from datetime import datetime
@@ -44,15 +43,13 @@ async def on_ready():
     print(f"✅ Bot connesso come {bot.user}")
     try:
         synced = await bot.tree.sync()
-        print(f"Comandi sincronizzati: {len(synced)}")
+        print(f"Comandi slash sincronizzati: {len(synced)}")
     except Exception as e:
         print(e)
 
 # ----------------------
 # Comandi Slash
 # ----------------------
-
-# 1️⃣ Comando per aggiungere una cacca
 @bot.tree.command(name="cacca", description="Aggiungi una cacca al tuo record!")
 async def cacca(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
@@ -68,7 +65,6 @@ async def cacca(interaction: discord.Interaction):
     save_data()
     await interaction.response.send_message(f"💩 {interaction.user.mention} ha fatto la cacca! Totale oggi: {data[user_id][today]}")
 
-# 2️⃣ Comando per vedere il record giornaliero di un utente
 @bot.tree.command(name="recordcacca", description="Mostra il tuo record giornaliero di cacca!")
 async def recordcacca(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
@@ -76,7 +72,6 @@ async def recordcacca(interaction: discord.Interaction):
     count = data.get(user_id, {}).get(today, 0)
     await interaction.response.send_message(f"📊 {interaction.user.mention}, oggi hai fatto la cacca {count} volte!")
 
-# 3️⃣ Comando per vedere la classifica generale (ora chiamata "cagate")
 @bot.tree.command(name="cagate", description="Mostra chi fa più cacca!")
 async def cagate(interaction: discord.Interaction):
     leaderboard = []
@@ -93,7 +88,6 @@ async def cagate(interaction: discord.Interaction):
 
     message = "🏆 **Classifica delle Cagate** 🏆\n"
     for i, (user_id, total) in enumerate(leaderboard[:10], start=1):
-        # Tagga direttamente l'utente
         message += f"{i}. <@{user_id}>: {total} 💩\n"
 
     await interaction.response.send_message(message)
